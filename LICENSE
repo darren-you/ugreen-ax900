@@ -1,0 +1,16 @@
+SPDX-License-Identifier: GPL-2.0-or-later
+
+This repository contains Linux kernel driver source, firmware packaging,
+and install helpers for AIC8800D80-based USB Wi-Fi adapters.
+
+Unless a file states a different license, the repository glue code,
+documentation, and install helpers authored for this repository are released
+under GPL-2.0-or-later.
+
+Upstream driver files keep their original copyright and license notices.
+The bundled src/aic8800-1.0.9/driverctl file declares GPL-3.0-or-later.
+Firmware files under firmware/aic8800D80 are redistributed as vendor firmware
+needed by the device and are not authored by this repository.
+
+See NOTICE.md for provenance and redistribution notes.
+

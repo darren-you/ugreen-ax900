@@ -1,0 +1,6 @@
+release_assets/
+dist/
+*.log
+*.tmp
+*.swp
+
