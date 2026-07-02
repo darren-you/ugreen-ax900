@@ -9,6 +9,19 @@ FIRMWARE_DIR="$ROOT/firmware/aic8800D80"
 UDEV_RULE="$ROOT/udev/aic.rules"
 KERNEL_VERSION="${KERNEL_VERSION:-$(uname -r)}"
 
+usage() {
+  cat <<EOF
+用法: build_from_source.sh [--help]
+
+说明:
+  通过 DKMS 从源码构建并安装 UGREEN AX900 / AIC8800D80 Linux 驱动。
+  该脚本会写入 /usr/src、/lib/firmware、udev 规则和 modules-load 配置，必须使用 sudo 执行。
+
+可选环境变量:
+  KERNEL_VERSION  指定目标内核版本，默认使用当前 uname -r
+EOF
+}
+
 print_block() {
   local title="$1"
   shift
@@ -89,6 +102,18 @@ load_modules() {
 }
 
 main() {
+  case "${1:-}" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    "")
+      ;;
+    *)
+      fail "未知参数: $1"
+      ;;
+  esac
+
   check_environment
   build_driver
   install_firmware_and_rules

@@ -2,6 +2,8 @@
 
 UGREEN AX900 / AICSemi AIC8800D80 USB Wi-Fi 网卡的 Linux 驱动整理仓库。
 
+工程标准入口：`harness/docs/workspace/standards/linux_driver/linux_driver_golden_path.md`。
+
 本仓库提供两种安装方式：
 
 - 直接安装 release 中的预编译驱动包：只适配已验证的 Ubuntu 24.04 / `6.17.0-14-generic` / `x86_64`。
@@ -173,4 +175,3 @@ scripts/                 安装、构建和诊断脚本
 ## 许可证与来源
 
 驱动源码来自 AICSemi/BrosTrend AIC8800 驱动包，保留原始版权和许可证声明。本仓库新增脚本与文档按 `LICENSE` 中的说明发布。固件是厂商二进制固件，见 `NOTICE.md`。
-

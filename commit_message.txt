@@ -1,3 +1,3 @@
-补充 UGREEN AX900 工作区上下文
+补齐 UGREEN AX900 治理入口
 
-将 repo_meta 中的 agent_context 状态更新为 present，并登记工作区级 agent_context 入口。
+回链 Linux driver 标准，补齐 repo_meta topics，并为安装和源码构建脚本增加非破坏性帮助输出。

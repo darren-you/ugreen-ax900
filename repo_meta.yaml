@@ -27,6 +27,8 @@ github:
     - tooling-repo
     - linux-driver
     - usb-wifi
+    - linux-kernel-module
+    - cli
     - ugreen-ax900
     - aic8800d80
     - aicsemi

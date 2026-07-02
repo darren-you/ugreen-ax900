@@ -9,6 +9,20 @@ FIRMWARE_DIR="$ROOT/firmware/aic8800D80"
 UDEV_RULE="$ROOT/udev/aic.rules"
 MODULES_LOAD="$ROOT/modules-load/aic8800.conf"
 
+usage() {
+  cat <<EOF
+用法: install_prebuilt.sh [--help]
+
+说明:
+  安装 UGREEN AX900 / AIC8800D80 预编译驱动包。
+  该脚本会写入内核模块、固件、udev 规则和 modules-load 配置，必须使用 sudo 执行。
+
+硬性边界:
+  kernel: $TARGET_KERNEL
+  arch:   $TARGET_ARCH
+EOF
+}
+
 print_block() {
   local title="$1"
   shift
@@ -93,6 +107,18 @@ try_storage_switch() {
 }
 
 main() {
+  case "${1:-}" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    "")
+      ;;
+    *)
+      fail "未知参数: $1"
+      ;;
+  esac
+
   require_root
   [ "$(uname -r)" = "$TARGET_KERNEL" ] || fail "预编译包只适配 $TARGET_KERNEL，当前为 $(uname -r)"
   [ "$(uname -m)" = "$TARGET_ARCH" ] || fail "预编译包只适配 $TARGET_ARCH，当前为 $(uname -m)"
@@ -108,4 +134,3 @@ main() {
 }
 
 main "$@"
-
