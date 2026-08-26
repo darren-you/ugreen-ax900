@@ -1,5 +1,6 @@
-schema_version: 3
+schema_version: 4
 name: ugreen_ax900
+workspace_area: tooling
 archetype: tooling_repo
 lifecycle: active
 owner: darren-you
