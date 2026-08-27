@@ -4,6 +4,33 @@ UGREEN AX900 / AICSemi AIC8800D80 USB Wi-Fi 网卡的 Linux 驱动整理仓库�
 
 工程标准入口：`harness/docs/workspace/standards/linux_driver/linux_driver_golden_path.md`。
 
+## 架构拓扑
+
+```mermaid
+flowchart LR
+    prebuilt["release_assets/ · 预编译驱动包"]
+    source["src/aic8800-1.0.9/ · DKMS 驱动源码"]
+    install["scripts/install_prebuilt.sh"]
+    build["scripts/build_from_source.sh"]
+    modules["aic_load_fw + aic8800_fdrv · Linux 内核模块"]
+    firmware["firmware/aic8800D80/ · 厂商固件"]
+    usb["AX900 USB 网卡 · 存储或固件加载模式"]
+    udev["udev/aic.rules · 模式切换规则"]
+    wifi["Linux Wi-Fi 接口"]
+    diag["scripts/collect_diagnostics.sh"]
+
+    prebuilt -->|"校验 kernel 与 arch 后安装"| install
+    source -->|"经 DKMS 构建并安装"| build
+    install -->|"部署固定版本模块"| modules
+    build -->|"生成当前内核模块"| modules
+    firmware -->|"提供设备固件"| modules
+    usb -->|"枚举事件触发规则"| udev
+    udev -->|"执行 USB 模式切换"| usb
+    modules -->|"加载固件并绑定设备"| usb
+    usb -->|"重新枚举后创建"| wifi
+    diag -->|"只读验证 USB、模块与网络状态"| wifi
+```
+
 本仓库提供两种安装方式：
 
 - 直接安装 release 中的预编译驱动包：只适配已验证的 Ubuntu 24.04 / `6.17.0-14-generic` / `x86_64`。
