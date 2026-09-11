@@ -8,6 +8,11 @@ governance_tier: standard
 domains:
   - linux_driver
   - usb_wifi
+domain_roots:
+  linux_driver:
+    - .
+  usb_wifi:
+    - .
 delivery_surfaces:
   - linux_kernel_module
   - cli
@@ -19,7 +24,6 @@ doc_status:
   architecture: not_applicable
   api: not_applicable
   release: present
-  agent_context: present
 github:
   repo: darren-you/ugreen_ax900
   about: UGREEN AX900 / AICSemi AIC8800D80 USB Wi-Fi Linux driver packaging and install scripts
@@ -39,4 +43,4 @@ entrypoints:
   - scripts/build_from_source.sh
   - scripts/collect_diagnostics.sh
   - src/aic8800-1.0.9
-  - harness/docs/workspace/repositories/ugreen_ax900/agent_context.md
+  - AGENTS.md

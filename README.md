@@ -201,4 +201,6 @@ scripts/                 安装、构建和诊断脚本
 
 ## 许可证与来源
 
+发布包由 `scripts/package_release.sh` 生成；交付前核对 `VERSION`、包内兼容元数据、文件清单、校验值、许可证与安装脚本。安装前后用 `scripts/collect_diagnostics.sh` 对照目标系统、架构、内核、Secure Boot、模块加载和网卡绑定；DKMS 路径还需在目标机验证重启加载与内核升级后的重建。
+
 驱动源码来自 AICSemi/BrosTrend AIC8800 驱动包，保留原始版权和许可证声明。本仓库新增脚本与文档按 `LICENSE` 中的说明发布。固件是厂商二进制固件，见 `NOTICE.md`。
