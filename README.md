@@ -1,4 +1,4 @@
-# ugreen_ax900
+# ugreen-ax900
 
 UGREEN AX900 / AICSemi AIC8800D80 USB Wi-Fi 网卡的 Linux 驱动整理仓库。
 
@@ -72,8 +72,8 @@ nmcli device status
 步骤：
 
 ```bash
-tar -xzf ugreen_ax900_prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64_v0.1.0.tar.gz
-cd ugreen_ax900_prebuilt
+tar -xzf ugreen-ax900-prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64_v0.1.0.tar.gz
+cd ugreen-ax900-prebuilt
 sha256sum -c SHA256SUMS
 sudo bash scripts/install_prebuilt.sh
 ```
@@ -104,8 +104,8 @@ sudo apt install -y dkms build-essential linux-headers-$(uname -r) usb-modeswitc
 然后构建并安装：
 
 ```bash
-git clone https://github.com/darren-you/ugreen_ax900.git
-cd ugreen_ax900
+git clone https://github.com/darren-you/ugreen-ax900.git
+cd ugreen-ax900
 sudo bash scripts/build_from_source.sh
 ```
 

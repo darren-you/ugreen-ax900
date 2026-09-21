@@ -12,7 +12,7 @@ run_optional() {
   fi
 }
 
-printf 'ugreen_ax900 diagnostics\n'
+printf 'ugreen-ax900 diagnostics\n'
 printf '  kernel       %s\n' "$(uname -r)"
 printf '  arch         %s\n' "$(uname -m)"
 

@@ -52,13 +52,13 @@ check_secure_boot() {
 
 verify_checksums() {
   if [ -f "$ROOT/SHA256SUMS" ]; then
-    (cd "$ROOT" && sha256sum -c SHA256SUMS >/tmp/ugreen_ax900_sha256.log) ||
-      fail "SHA256 校验失败，详情见 /tmp/ugreen_ax900_sha256.log"
+    (cd "$ROOT" && sha256sum -c SHA256SUMS >/tmp/ugreen-ax900-sha256.log) ||
+      fail "SHA256 校验失败，详情见 /tmp/ugreen-ax900-sha256.log"
   fi
 }
 
 install_files() {
-  local backup_dir="/var/backups/ugreen_ax900/$(date +%Y%m%d%H%M%S)"
+  local backup_dir="/var/backups/ugreen-ax900/$(date +%Y%m%d%H%M%S)"
   local kernel_module_dir="/lib/modules/$TARGET_KERNEL/updates/dkms"
 
   install -d -m 0755 "$backup_dir" "$kernel_module_dir" /lib/firmware /usr/lib/udev/rules.d /etc/modules-load.d

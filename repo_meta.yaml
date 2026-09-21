@@ -1,31 +1,31 @@
-schema_version: 4
-name: ugreen_ax900
+schema_version: 5
+name: ugreen-ax900
 workspace_area: tooling
-archetype: tooling_repo
+archetype: tooling-repo
 lifecycle: active
 owner: darren-you
 governance_tier: standard
 domains:
-  - linux_driver
-  - usb_wifi
+  - linux-driver
+  - usb-wifi
 domain_roots:
-  linux_driver:
+  linux-driver:
     - .
-  usb_wifi:
+  usb-wifi:
     - .
 delivery_surfaces:
-  - linux_kernel_module
+  - linux-kernel-module
   - cli
 depends_on: []
 default_workflows:
-  - install_prebuilt_driver
-  - build_driver_from_source
+  - install-prebuilt-driver
+  - build-driver-from-source
 doc_status:
-  architecture: not_applicable
-  api: not_applicable
+  architecture: not-applicable
+  api: not-applicable
   release: present
 github:
-  repo: darren-you/ugreen_ax900
+  repo: darren-you/ugreen-ax900
   about: UGREEN AX900 / AICSemi AIC8800D80 USB Wi-Fi Linux driver packaging and install scripts
   topics:
     - darren-space

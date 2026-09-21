@@ -6,8 +6,8 @@ VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
 TARGET_KERNEL="6.17.0-14-generic"
 TARGET_ARCH="x86_64"
 DIST="$ROOT/dist"
-STAGE="$DIST/ugreen_ax900_prebuilt"
-ASSET="$DIST/ugreen_ax900_prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64_v$VERSION.tar.gz"
+STAGE="$DIST/ugreen-ax900-prebuilt"
+ASSET="$DIST/ugreen-ax900-prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64_v$VERSION.tar.gz"
 
 print_block() {
   local title="$1"
@@ -22,7 +22,7 @@ print_block() {
 rm -rf "$STAGE"
 install -d -m 0755 "$STAGE/modules/$TARGET_KERNEL/$TARGET_ARCH" "$STAGE/firmware" "$STAGE/udev" "$STAGE/modules-load" "$STAGE/scripts"
 
-SOURCE_ASSET="$ROOT/release_assets/ugreen_ax900_prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64.tar.gz"
+SOURCE_ASSET="$ROOT/release_assets/ugreen-ax900-prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64.tar.gz"
 [ -f "$SOURCE_ASSET" ] || {
   print_block "package_release result" "status" "failed" "reason" "缺少 $SOURCE_ASSET"
   exit 1
@@ -48,8 +48,8 @@ This package is only for Ubuntu 24.04 x86_64 with kernel `6.17.0-14-generic`.
 Install:
 
 ```bash
-tar -xzf ugreen_ax900_prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64_v__VERSION__.tar.gz
-cd ugreen_ax900_prebuilt
+tar -xzf ugreen-ax900-prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64_v__VERSION__.tar.gz
+cd ugreen-ax900-prebuilt
 sha256sum -c SHA256SUMS
 sudo bash scripts/install_prebuilt.sh
 ```
@@ -61,7 +61,7 @@ mv "$release_readme.tmp" "$release_readme"
 
 (cd "$STAGE" && sha256sum modules/$TARGET_KERNEL/$TARGET_ARCH/*.ko.zst firmware/aic8800D80/* udev/aic.rules modules-load/aic8800.conf scripts/*.sh VERSION README.release.md > SHA256SUMS)
 rm -f "$ASSET"
-(cd "$DIST" && tar --owner=0 --group=0 -czf "$(basename "$ASSET")" ugreen_ax900_prebuilt)
+(cd "$DIST" && tar --owner=0 --group=0 -czf "$(basename "$ASSET")" ugreen-ax900-prebuilt)
 (cd "$DIST" && sha256sum "$(basename "$ASSET")" > "$(basename "$ASSET").sha256")
 
 print_block "package_release result" "status" "ok" "asset" "$ASSET" "sha256" "$ASSET.sha256"

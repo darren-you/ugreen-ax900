@@ -53,7 +53,7 @@ check_environment() {
 }
 
 install_firmware_and_rules() {
-  local backup_dir="/var/backups/ugreen_ax900/source-build-$(date +%Y%m%d%H%M%S)"
+  local backup_dir="/var/backups/ugreen-ax900/source-build-$(date +%Y%m%d%H%M%S)"
   install -d -m 0755 "$backup_dir" /lib/firmware /usr/lib/udev/rules.d /etc/modules-load.d
 
   if [ -d /lib/firmware/aic8800D80 ]; then
@@ -74,7 +74,7 @@ install_firmware_and_rules() {
 
 build_driver() {
   local dst="/usr/src/$PACKAGE_NAME-$PACKAGE_VERSION"
-  local src_backup="/var/backups/ugreen_ax900/usr-src-$PACKAGE_VERSION-$(date +%Y%m%d%H%M%S)"
+  local src_backup="/var/backups/ugreen-ax900/usr-src-$PACKAGE_VERSION-$(date +%Y%m%d%H%M%S)"
 
   modprobe -r aic8800_fdrv 2>/dev/null || true
   modprobe -r aic_load_fw 2>/dev/null || true
