@@ -2,7 +2,7 @@
 
 UGREEN AX900 / AICSemi AIC8800D80 USB Wi-Fi 网卡的 Linux 驱动整理仓库。
 
-工程标准入口：`harness/docs/workspace/standards/linux_driver/linux_driver_golden_path.md`。
+工程标准入口：`harness/docs/workspace/standards/linux-driver/linux-driver-golden-path.md`。
 
 ## 架构拓扑
 
