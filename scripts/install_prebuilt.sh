@@ -50,13 +50,6 @@ check_secure_boot() {
   fi
 }
 
-verify_checksums() {
-  if [ -f "$ROOT/SHA256SUMS" ]; then
-    (cd "$ROOT" && sha256sum -c SHA256SUMS >/tmp/ugreen-ax900-sha256.log) ||
-      fail "SHA256 校验失败，详情见 /tmp/ugreen-ax900-sha256.log"
-  fi
-}
-
 install_files() {
   local backup_dir="/var/backups/ugreen-ax900/$(date +%Y%m%d%H%M%S)"
   local kernel_module_dir="/lib/modules/$TARGET_KERNEL/updates/dkms"
@@ -119,6 +112,8 @@ main() {
       ;;
   esac
 
+  # 校验本次正式包后，才进入任何特权操作。本地验证包和源码 checkout 均拒绝安装。
+  python3 "$ROOT/scripts/verify_package.py" verify "$ROOT" >/dev/null || fail "正式包身份或文件校验失败"
   require_root
   [ "$(uname -r)" = "$TARGET_KERNEL" ] || fail "预编译包只适配 $TARGET_KERNEL，当前为 $(uname -r)"
   [ "$(uname -m)" = "$TARGET_ARCH" ] || fail "预编译包只适配 $TARGET_ARCH，当前为 $(uname -m)"
@@ -126,9 +121,19 @@ main() {
   [ -f "$MODULE_DIR/aic_load_fw.ko.zst" ] || fail "缺少 aic_load_fw.ko.zst"
   [ -d "$FIRMWARE_DIR" ] || fail "缺少 firmware/aic8800D80"
   check_secure_boot
-  verify_checksums
+  command -v flock >/dev/null 2>&1 || fail "缺少 util-linux flock"
+  [ ! -L /var/lib/ugreen-ax900 ] || fail "安装状态目录不能是符号链接"
+  install -d -m 0700 /var/lib/ugreen-ax900
+  [ ! -L /var/lib/ugreen-ax900/install.lock ] || fail "安装锁不能是符号链接"
+  exec 9>/var/lib/ugreen-ax900/install.lock
+  flock -x 9
+  local pending_token
+  pending_token="$(python3 "$ROOT/scripts/verify_package.py" begin-install "$ROOT")" ||
+    fail "目标安装状态不允许本次构建"
   install_files
   load_modules
+  python3 "$ROOT/scripts/verify_package.py" finish-install "$ROOT" --token "$pending_token" ||
+    fail "安装后实际文件回读失败，保留待完成记录"
   try_storage_switch
   print_block "install_prebuilt result" "status" "ok" "driver" "aic8800_fdrv" "next" "物理拔插网卡后执行 scripts/collect_diagnostics.sh"
 }

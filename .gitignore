@@ -3,4 +3,5 @@ dist/
 *.log
 *.tmp
 *.swp
+__pycache__/
 

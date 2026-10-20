@@ -1,0 +1,8 @@
+{
+  "file": "ugreen_ax900_prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64_v0.1.0.tar.gz",
+  "url": "https://github.com/darren-you/ugreen-ax900/releases/download/v0.1.0/ugreen_ax900_prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64_v0.1.0.tar.gz",
+  "sha256": "293987609c006365f120ed6aa755234980ba9008e917b30af9fa987ea65b7706",
+  "prefix": "ugreen_ax900_prebuilt",
+  "kernel": "6.17.0-14-generic",
+  "architecture": "x86_64"
+}

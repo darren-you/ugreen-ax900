@@ -38,7 +38,7 @@ flowchart LR
 
 ## 已验证硬件与系统
 
-当前 release 的预编译模块来自下面这台机器：
+历史 `v0.1.0` release 的预编译模块来自下面这台机器。新的分发版本保留相同模块字节；本地重打包与安装状态机测试不能替代目标机硬件验收：
 
 ```text
 OS      Ubuntu 24.04.4 LTS
@@ -69,14 +69,16 @@ nmcli device status
 - 只允许安装到 `x86_64`。
 - Secure Boot 开启时不建议使用预编译包；请改用源码构建并按本机策略签名模块。
 
-步骤：
+正式 `1.0.0` 包由下文入口生成。取得对应构建号的包后，先核对发布收据中的归档摘要，再执行：
 
 ```bash
-tar -xzf ugreen-ax900-prebuilt_ubuntu24.04_kernel6.17.0-14_x86_64_v0.1.0.tar.gz
+tar -xzf "<实际取得的正式 tar.gz 路径>"
 cd ugreen-ax900-prebuilt
-sha256sum -c SHA256SUMS
+python3 scripts/verify_package.py verify .
 sudo bash scripts/install_prebuilt.sh
 ```
+
+安装器依赖 Python 3 与 `util-linux` 的 `flock`，拒绝本地验证包、错误内核／架构及校验失败的文件。`/var/lib/ugreen-ax900/install.json` 在安装锁内记录包身份、文件摘要和待完成／已完成状态；较旧版本、较旧构建号或同号不同内容不能覆盖已安装包。中断后使用同一包重试；已有驱动没有记录或记录与实际文件不同，必须先核定历史版本和构建号，不会自动采用现状。
 
 安装完成后，物理拔下网卡再插回，优先使用主板后置 USB 口。然后执行：
 
@@ -197,10 +199,32 @@ src/aic8800-1.0.9/       AIC8800 DKMS 源码
 firmware/aic8800D80/     AIC8800D80 固件
 udev/aic.rules           存储模式自动 eject 规则
 scripts/                 安装、构建和诊断脚本
+release.json             自建分发版本的唯一声明
+prebuilt-source.json     历史原件的来源、摘要、内核和架构
 ```
+
+## 构建分发包
+
+`release.json` 声明自建分发版本 `1.0.0`。厂商源码 `aic8800/1.0.9` 以及实际模块 `aic_load_fw 1.0`、`aic8800_fdrv 6.4.3.0` 保留原义；它们不是分发构建号。
+
+先将 [历史 v0.1.0 发布原件](https://github.com/darren-you/ugreen-ax900/releases/tag/v0.1.0) 下载到被忽略的 `release_assets/`，文件名与 `prebuilt-source.json` 一致。构建入口会核对声明中的 SHA256，解读实际压缩 ELF 的架构、模块名和 vermagic，只复用原件中的模块、固件与安装配置，使用当前安装脚本及许可文件封装。
+
+```bash
+bash scripts/package_release.sh
+```
+
+无正式上下文时生成 `dist/*-1.0.0-local.tar.gz` 和 JSON 收据，包内显式标记 `local_validation`，不分配构建号且不能安装。正式构建由已有 Core 分配器提供完整冻结上下文和 `FAST_DEPLOY_CLIENT_VERSION_SNAPSHOT_FILE`，并显式设置 `FAST_DEPLOY_PACKAGE_CORE_ROOT` 指向冻结、干净的 Core。版本必须等于冻结数字分支，架构为 `x86_64`，变体为 `ubuntu24.04-kernel6.17.0-14-generic`；分发身份为 `module / ugreen-ax900`。本脚本消费既有编号，不初始化生产状态或自行核定高水位。
+
+正式输出 `dist/*-<版本>-build<构建号>.tar.gz`，包内 `VERSION`、`build.json`、`native.json` 与 `SHA256SUMS` 一并生成并回读；同一输入重放字节不变，同号异内容拒绝覆盖，历史归档不删除。构建和回归需 Python 3、`zstd`、Git。测试仅在临时目录运行，正式路径测试需显式提供 Core 源码：
+
+```bash
+FAST_DEPLOY_TEST_PACKAGE_CORE_ROOT="<实际 Core 绝对路径>" python3 scripts/test_build_package.py
+```
+
+源码 DKMS 入口仍是目标机的维护操作，使用厂商版本；它不会发布上述带身份的分发包，也不能作为新分发包的构建或安装证据。
 
 ## 许可证与来源
 
-发布包由 `scripts/package_release.sh` 生成；交付前核对 `VERSION`、包内兼容元数据、文件清单、校验值、许可证与安装脚本。安装前后用 `scripts/collect_diagnostics.sh` 对照目标系统、架构、内核、Secure Boot、模块加载和网卡绑定；DKMS 路径还需在目标机验证重启加载与内核升级后的重建。
+发布包由 `scripts/package_release.sh` 生成；交付前核对生成的 `VERSION`、`build.json`、`native.json`、文件清单、校验值、许可证与安装脚本。安装前后用 `scripts/collect_diagnostics.sh` 对照目标系统、架构、内核、Secure Boot、模块加载和网卡绑定；DKMS 路径还需在目标机验证重启加载与内核升级后的重建。
 
 驱动源码来自 AICSemi/BrosTrend AIC8800 驱动包，保留原始版权和许可证声明。本仓库新增脚本与文档按 `LICENSE` 中的说明发布。固件是厂商二进制固件，见 `NOTICE.md`。
