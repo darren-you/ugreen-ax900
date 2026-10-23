@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "repo_name": "ugreen-ax900",
+  "config_path": "release.json",
+  "platform": "module",
+  "application_id": "ugreen-ax900",
+  "variant": "ubuntu24.04-kernel6.17.0-14-generic",
+  "architectures": ["x86_64"],
+  "entry": "scripts/package_release.sh",
+  "artifact": "ugreen-ax900.tar.gz",
+  "identity_entry": "ugreen-ax900-prebuilt/build.json",
+  "input_commands": [["python3", "--version"], ["zstd", "--version"]]
+}
