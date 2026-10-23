@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -162,7 +163,15 @@ def verify(path, value, files):
             "artifact_sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "artifact_bytes": path.stat().st_size}
 
 
-def build(root):
+def build(root, artifact=None):
+    if artifact is not None:
+        artifact = Path(artifact)
+        if (not artifact.is_absolute() or not artifact.name.endswith(".tar.gz")
+                or artifact.parent.resolve() != artifact.parent or not artifact.parent.is_dir()
+                or artifact.is_symlink()):
+            raise ValueError("正式 run 的输出必须是已有目录下的绝对 tar.gz 路径，且不得经过符号链接")
+        if not os.environ.get("FAST_DEPLOY_RUN_ID") or not os.environ.get("FAST_DEPLOY_CLIENT_VERSION_SNAPSHOT_FILE"):
+            raise ValueError("独立 run 输出只接受完整正式输入")
     value, command = identity(root)
     payload, native = source_payload(root)
     files = {name: (data, 0o644) for name, data in payload.items()}
@@ -227,13 +236,27 @@ def build(root):
             except FileExistsError:
                 if receipt.is_symlink() or receipt.read_bytes() != encoded(report):
                     raise ValueError("同号已有不同收据，拒绝覆盖")
+    if artifact is not None:
+        with tempfile.TemporaryDirectory(prefix=".driver-run-", dir=artifact.parent) as temporary:
+            candidate = Path(temporary) / "package.tar.gz"
+            shutil.copyfile(path, candidate)
+            if verify(candidate, value, files) != report:
+                raise ValueError("独立 run 包复制后回读不同")
+            try:
+                os.link(candidate, artifact)
+            except FileExistsError:
+                if artifact.is_symlink() or artifact.read_bytes() != candidate.read_bytes():
+                    raise ValueError("独立 run 路径已有不同制品，拒绝覆盖")
+        path = artifact
     return path, report
 
 
 if __name__ == "__main__":
-    argparse.ArgumentParser(description=__doc__).parse_args()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("artifact", nargs="?", type=Path, help="Core 独立 run 的最终 tar.gz 绝对路径")
+    args = parser.parse_args()
     try:
-        path, report = build(ROOT)
+        path, report = build(ROOT, args.artifact)
         print("package_release result\n  status       ok\n  artifact     " + str(path) +
               "\n  sha256       " + report["artifact_sha256"])
     except (ValueError, OSError, KeyError, subprocess.CalledProcessError, tarfile.TarError) as error:

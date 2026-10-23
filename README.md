@@ -215,6 +215,8 @@ bash scripts/package_release.sh
 
 无正式上下文时生成 `dist/*-1.0.0-local.tar.gz` 和 JSON 收据，包内显式标记 `local_validation`，不分配构建号且不能安装。正式构建由已有 Core 分配器提供完整冻结上下文和 `FAST_DEPLOY_CLIENT_VERSION_SNAPSHOT_FILE`，并显式设置 `FAST_DEPLOY_PACKAGE_CORE_ROOT` 指向冻结、干净的 Core。版本必须等于冻结数字分支，架构为 `x86_64`，变体为 `ubuntu24.04-kernel6.17.0-14-generic`；分发身份为 `module / ugreen-ax900`。本脚本消费既有编号，不初始化生产状态或自行核定高水位。
 
+独立正式调用使用 Core 的 `shared/package_run.py` 与本仓 `scripts/module-package-run.json`，从真实远端 `1.0.0` 冻结源码、Python／zstd 工具输入及同次 Core。入口把最终 `tar.gz` 绝对路径传入脚本，run 归档与 `dist` 原件逐字节一致；同 run 重放读取原包且不增号。该入口不安装驱动、发布 GitHub Release 或发送通知，旧安装与硬件状态需单独验收。
+
 正式输出 `dist/*-<版本>-build<构建号>.tar.gz`，包内 `VERSION`、`build.json`、`native.json` 与 `SHA256SUMS` 一并生成并回读；同一输入重放字节不变，同号异内容拒绝覆盖，历史归档不删除。构建和回归需 Python 3、`zstd`、Git。测试仅在临时目录运行，正式路径测试需显式提供 Core 源码：
 
 ```bash

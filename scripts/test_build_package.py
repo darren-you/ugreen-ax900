@@ -89,6 +89,15 @@ class PackageFixture(unittest.TestCase):
 
 
 class PackageTest(PackageFixture):
+    def test_run_output_rejects_local_mode_and_linked_parent(self):
+        with self.assertRaisesRegex(ValueError, "完整正式输入"):
+            package.build(self.root, self.base / "run.tar.gz")
+        linked = self.base / "linked"
+        linked.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "符号链接"):
+            package.build(self.root, linked / "run.tar.gz")
+        self.assertFalse((self.root / "dist").exists())
+
     def test_real_native_bytes_deterministic_local_package_and_install_rejection(self):
         artifact, report = package.build(self.root)
         self.assertTrue(report["build"]["local_validation"])
@@ -218,6 +227,66 @@ class PackageTest(PackageFixture):
         self.assertEqual(verification.read_state(state)["status"], "installed")
 
 
+@unittest.skipUnless(os.environ.get("FAST_DEPLOY_TEST_PACKAGE_CORE_ROOT"), "独立 run 测试需要显式 Core 测试源码")
+class PackageRunTest(PackageFixture):
+    def setUp(self):
+        core_source = Path(os.environ["FAST_DEPLOY_TEST_PACKAGE_CORE_ROOT"])
+        super().setUp()
+        self.core_repo = self.base / "core-repo"
+        self.core = self.core_repo / "core"
+        shutil.copytree(core_source / "shared", self.core / "shared",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        (self.core_repo / ".gitignore").write_text("__pycache__/\n")
+        self.remotes = {}
+        for name, root in (("module", self.root), ("core", self.core_repo)):
+            subprocess.run(["git", "init", "-qb", "master", str(root)], check=True)
+            sha = commit(root)
+            subprocess.run(["git", "-C", str(root), "branch", "1.0.0"], check=True)
+            remote = self.base / (name + ".git")
+            subprocess.run(["git", "clone", "-q", "--bare", str(root), str(remote)], check=True)
+            subprocess.run(["git", "-C", str(root), "remote", "add", "origin", str(remote)], check=True)
+            subprocess.run(["git", "-C", str(root), "fetch", "-q", "origin"], check=True)
+            self.remotes[name] = remote
+            if name == "core":
+                self.core_sha = sha
+        self.state_root = self.base / "artifacts"
+        self.state_root.mkdir(mode=0o700)
+        self.scope = {"repo_name": "ugreen-ax900", "project_path": "", "platform": "module",
+                      "identity_kind": "release_unit", "application_id": "ugreen-ax900"}
+        scope_file = self.base / "scope.json"
+        scope_file.write_text(json.dumps(self.scope))
+        subprocess.run([sys.executable, str(self.core / "shared/client_version.py"), "initialize",
+                        "--artifact-root", str(self.state_root), "--scope-file", str(scope_file),
+                        "--historical-code", "1", "--approved-core-sha", self.core_sha], check=True,
+                       capture_output=True)
+        os.environ.update(FAST_DEPLOY_TEST_ALLOW_LOCAL_REPOSITORY_URLS="true",
+                          FAST_DEPLOY_TEST_CORE_REPO_URL=str(self.remotes["core"]))
+
+    def invoke(self, run):
+        result = subprocess.run([sys.executable, str(self.core / "shared/package_run.py"),
+            "--repo-root", str(self.root), "--repo-url", str(self.remotes["module"]),
+            "--manifest", "scripts/module-package-run.json", "--source-ref", "refs/heads/1.0.0",
+            "--artifact-root", str(self.state_root), "--receipt-root", str(self.base / "receipts"),
+            "--run-id", run], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_real_entry_two_runs_and_replay(self):
+        first = self.invoke("package-first")
+        second = self.invoke("package-second")
+        self.assertEqual((first["build"]["version"], first["build"]["build_number"]), ("1.0.0", 2))
+        self.assertEqual((second["build"]["version"], second["build"]["build_number"]), ("1.0.0", 3))
+        self.assertEqual(self.invoke("package-first"), first)
+        for run, number in (("package-first", 2), ("package-second", 3)):
+            target = self.base / "receipts" / run / "ugreen-ax900.tar.gz"
+            original = self.root / "dist" / f"{package.PREFIX}-{package.VARIANT}-{package.ARCHITECTURE}-1.0.0-build{number}.tar.gz"
+            self.assertEqual(target.read_bytes(), original.read_bytes())
+            extracted = self.extract(target, run)
+            build = verification.verify(extracted)["build"]
+            self.assertEqual((build["version"], build["build_number"]), ("1.0.0", number))
+            self.assertEqual(first["context"]["artifact_kind"], "dist-tar-gz")
+
+
 @unittest.skipUnless(CORE_SOURCE, "正式构建测试需要显式 Core 测试源码")
 class FormalPackageTest(PackageFixture):
     def setUp(self):
@@ -305,6 +374,19 @@ class FormalPackageTest(PackageFixture):
         with self.assertRaisesRegex(ValueError, "不同收据"):
             package.build(self.root)
         self.assertEqual(receipt.read_bytes(), b"historical different receipt")
+
+    def test_formal_run_output_preserves_original_and_rejects_conflict(self):
+        self.allocate("run-output")
+        target = self.base / "output.tar.gz"
+        artifact, report = package.build(self.root, target)
+        self.assertEqual(artifact, target)
+        original = next((self.root / "dist").glob("*.tar.gz"))
+        self.assertEqual(target.read_bytes(), original.read_bytes())
+        self.assertEqual(package.build(self.root, target)[1], report)
+        target.write_bytes(b"different existing archive")
+        with self.assertRaisesRegex(ValueError, "已有不同制品"):
+            package.build(self.root, target)
+        self.assertEqual(target.read_bytes(), b"different existing archive")
 
 
 if __name__ == "__main__":
