@@ -57,7 +57,9 @@ Driver  aic8800_fdrv
 
 随后完成整机重启验收：启动 ID 已变化，无需再次拔插即可自动识别网卡，本次启动未出现固件上传超时。重启前后均使用不改默认路由的临时 5 GHz 连接验证 WPA2 认证、DHCP 分配和网关 ICMP 收发（各 4 发 4 收），随后清理临时连接；标准 SSH 连接也通过。当前启动镜像不含另一份 AIC 模块或固件，已有 DKMS 自动安装、modules-load 与 udev 入口保持。此结果不代表后续内核升级已经验收；预编译包的内核适用范围仍以安装器限制为准。
 
-同日已在 Ubuntu 24.04.4 / `7.0.0-38-generic` / `x86_64` 的普通用户临时目录中，从本仓源码实际编译出两个模块，并使用仓库匹配固件生成原生输入归档。编译使用 GCC 13.3、Binutils 2.42 与对应 HWE 头文件；厂商代码仍有编译警告，缺少 `vmlinux` 时内核构建跳过 BTF。此新编译原件与正式包完成静态结构、摘要和封装验证，但没有替换已冻结的现役 DKMS 模块，不能将前述联网验收等同于新包安装后的硬件验收。
+同日已在 Ubuntu 24.04.4 / `7.0.0-38-generic` / `x86_64` 的普通用户临时目录中，从本仓源码实际编译出两个模块，并使用仓库匹配固件生成原生输入归档。编译使用 GCC 13.3、Binutils 2.42 与对应 HWE 头文件；厂商代码仍有编译警告，缺少 `vmlinux` 时内核构建跳过 BTF。
+
+随后在 Z420 备份旧模块、固件与 DKMS 状态，卸载旧模块并移除当前内核的 DKMS 实例，通过原版安装器安装正式 `1.0.0 build3`，生成真实安装记录并核对全部载荷摘要。新包完成物理断电重插和整机重启验收：重启后自动识别网卡、连接 5 GHz WPA2 网络并取得 DHCP 地址；通过 Wi-Fi 直连 SSH，绑定无线接口的网关测试 4 发 4 收、HTTPS 请求返回 200，双频扫描通过。本次启动没有固件上传超时或 WEXT 不支持错误，启动镜像没有其他 AIC 模块副本。热重装后曾出现认证服务残留旧接口状态，重启 `wpa_supplicant` 后恢复，详见下文排障说明。验收证据保存在该机 `/var/backups/ugreen-ax900/reinstall-build3-msv5gezp/acceptance-boot.json`；该结果仅覆盖上述硬件、内核和本次启动。
 
 正常工作时可看到：
 
@@ -215,11 +217,26 @@ lsmod | grep aic
 sudo bash scripts/build_from_source.sh
 ```
 
+### 7. 热重装后能扫描，但关联失败
+
+本次 Z420 热重装后，`wpa_supplicant` 仍通过 WEXT 发出关联请求，日志出现 `ioctl[SIOCSIWESSID]`、`SIOCSIWMODE` 等 `Operation not supported`；随后 NetworkManager 的认证超时或 `no-secrets` 不能单独证明密码错误。该驱动的连接接口由 cfg80211 提供，WEXT 扫描成功也不代表 WEXT 关联受支持。
+
+保留独立管理连接后，重启认证服务，再等待 NetworkManager 重新接管接口：
+
+```bash
+sudo systemctl restart wpa_supplicant
+nmcli device status
+```
+
+该动作会短暂中断本机 Wi-Fi。Z420 实测重启认证服务后连接成功，随后整机重启也自动连接；无需再次改写固件或保存新的 Wi-Fi 密码。
+
 ## 保持已验证的驱动与固件
 
 2026-10-26 在 Z420 上已禁止厂商包自动更新：`/etc/apt/preferences.d/ugreen-ax900-freeze` 将 `aic8800-dkms` 的所有版本设为 `Pin-Priority: -1`，`apt-cache policy aic8800-dkms` 的候选版本为 `(none)`。同时对 `/usr/src/aic8800-1.0.9` 和 `/lib/firmware/aic8800D80` 的现有目录及文件设置 immutable，防止覆盖已验证的源代码与固件。APT 规则只针对该包；系统安全更新保持启用。
 
-保留 `DKMS AUTOINSTALL=YES`，让相同源码在新内核安装时重新编译；没有锁定 `/var/lib/dkms` 或 `/lib/modules`。已验证 DKMS 的源码复制方式可从冻结目录产生可写的构建副本，但尚未验收未来内核。冻结记录和文件摘要保存在该机 `/var/backups/ugreen-ax900/freeze-q5m6h55d/freeze.json`。
+当前 `7.0.0-38-generic` 的模块由正式包及 `/var/lib/ugreen-ax900/install.json` 管理。迁移时已移除该内核的旧 DKMS 安装与构建缓存，保留其他内核实例；并在 `/etc/dkms/aic8800-1.0.9-7.0.0-38-generic-x86_64.conf` 设置 `AUTOINSTALL=""` 和 `BUILD_EXCLUSIVE_KERNEL="^$"`。实测单独设置前者不足以阻止本机 DKMS 自动安装旧缓存；移除缓存并增加构建限制后，实际执行 `dkms autoinstall -k 7.0.0-38-generic` 跳过 AIC 驱动，正式包载荷摘要保持一致。
+
+源码中的 `DKMS AUTOINSTALL=YES` 保留，其他及后续内核仍可尝试从冻结源码构建；没有锁定 `/var/lib/dkms` 或 `/lib/modules`。已验证 DKMS 可从冻结目录产生可写构建副本，但尚未验收未来内核。原冻结记录位于 `/var/backups/ugreen-ax900/freeze-q5m6h55d/freeze.json`；本次正式包安装、冻结恢复及 DKMS 防覆盖证据位于 `/var/backups/ugreen-ax900/reinstall-build3-msv5gezp/`。
 
 两个安装入口会在卸载模块或写入状态前检查冻结属性并拒绝覆盖。以后确实需要手动更新时，先确认源码与固件备份、目标内核及替代管理连接，再由管理员明确解冻：
 
@@ -229,7 +246,7 @@ sudo chattr -R -i /usr/src/aic8800-1.0.9 /lib/firmware/aic8800D80
 sudo rm /etc/apt/preferences.d/ugreen-ax900-freeze
 ```
 
-解冻不会绕过正式包的安装状态校验；现役手工 DKMS 安装没有正式包收据，不能直接用新包静默接管。新包发布不改变这台机器的现有安装。
+解冻不会绕过正式包的安装状态校验。没有正式包收据的手工 DKMS 安装，应先备份实际文件和 DKMS 状态，再卸载对应内核的旧模块并移除该内核实例，由正式安装器创建记录；不能编造历史版本或收据。Z420 已完成这一迁移并恢复冻结。若要恢复当前内核的 DKMS 管理，须先协调正式包安装记录与模块归属，并撤销该内核专用的构建限制，否则 DKMS 会按规则跳过；不要让两套入口同时管理同一份模块。
 
 ## 仓库结构
 
