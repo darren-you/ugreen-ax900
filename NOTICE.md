@@ -13,7 +13,8 @@
 
 - 机器：HP Z420 Workstation
 - 系统：Ubuntu 24.04.4 LTS
-- 内核：`6.17.0-14-generic`
+- 历史预编译内核：`6.17.0-14-generic`
+- 2026-10-26 固件修复及重启联网验收内核：`7.0.0-38-generic`
 - 架构：`x86_64`
 - 设备：`368b:8d85 AICSemi AIC 8800D80`
 - 驱动：`aic8800_fdrv`

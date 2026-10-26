@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_KERNEL="6.17.0-14-generic"
+TARGET_KERNEL="7.0.0-38-generic"
 TARGET_ARCH="x86_64"
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 MODULE_DIR="$ROOT/modules/$TARGET_KERNEL/$TARGET_ARCH"
@@ -40,6 +40,19 @@ fail() {
 
 require_root() {
   [ "$(id -u)" -eq 0 ] || fail "请使用 sudo 执行"
+}
+
+check_unfrozen_targets() {
+  local target attributes
+  for target in /usr/src/aic8800-1.0.9 /lib/firmware/aic8800D80; do
+    [ -e "$target" ] || continue
+    command -v lsattr >/dev/null 2>&1 || fail "缺少 lsattr，无法检查现有驱动冻结状态"
+    attributes="$(find -H "$target" \( -type f -o -type d \) -exec lsattr -d -- {} +)" ||
+      fail "无法检查 $target 的 immutable 属性，拒绝修改现有驱动"
+    if printf '%s\n' "$attributes" | awk '$1 ~ /^[a-zA-Z-]+$/ && index($1, "i") { frozen=1 } END { exit !frozen }'; then
+      fail "$target 含 immutable 冻结文件或目录；请管理员确认升级范围后手动解冻，再重试安装"
+    fi
+  done
 }
 
 check_secure_boot() {
@@ -120,6 +133,8 @@ main() {
   [ -f "$MODULE_DIR/aic8800_fdrv.ko.zst" ] || fail "缺少 aic8800_fdrv.ko.zst"
   [ -f "$MODULE_DIR/aic_load_fw.ko.zst" ] || fail "缺少 aic_load_fw.ko.zst"
   [ -d "$FIRMWARE_DIR" ] || fail "缺少 firmware/aic8800D80"
+  # 在创建安装记录、写入文件或卸载模块前，保留管理员设置的驱动冻结边界。
+  check_unfrozen_targets
   check_secure_boot
   command -v flock >/dev/null 2>&1 || fail "缺少 util-linux flock"
   [ ! -L /var/lib/ugreen-ax900 ] || fail "安装状态目录不能是符号链接"

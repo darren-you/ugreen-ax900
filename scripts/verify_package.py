@@ -9,7 +9,7 @@ import re
 import sys
 import tempfile
 
-KERNEL = "6.17.0-14-generic"
+KERNEL = "7.0.0-38-generic"
 ARCHITECTURE = "x86_64"
 MODULE_NAMES = {"aic8800_fdrv.ko.zst", "aic_load_fw.ko.zst"}
 VARIANT = "ubuntu24.04-kernel" + KERNEL
@@ -51,7 +51,7 @@ def read_json(path):
     return json.loads(read_file(path), object_pairs_hook=unique_object)
 
 
-def validate_build(build):
+def validate_build(build, historical=False):
     fields = {"version", "platform", "application_id", "architecture", "variant", "local_validation",
               "run_id", "build_number", "source_commit_sha", "input_sha256"}
     if type(build) is not dict or build.get("local_validation") is not False:
@@ -59,7 +59,8 @@ def validate_build(build):
     if (set(build) != fields or not isinstance(build["version"], str)
             or not VERSION.fullmatch(build["version"]) or build["platform"] != "module"
             or build["application_id"] != "ugreen-ax900" or build["architecture"] != ARCHITECTURE
-            or build["variant"] != VARIANT or type(build["build_number"]) is not int
+            or build["variant"] not in ({VARIANT, "ubuntu24.04-kernel6.17.0-14-generic"} if historical else {VARIANT})
+            or type(build["build_number"]) is not int
             or not 0 < build["build_number"] <= 9007199254740991
             or not isinstance(build["run_id"], str) or not build["run_id"].strip()
             or not isinstance(build["source_commit_sha"], str)
@@ -116,13 +117,23 @@ def verify(root):
     if actual != expected.keys() | {"SHA256SUMS"}:
         raise ValueError("包内文件集合与 SHA256SUMS 不一致")
     native = read_json(root / "native.json")
-    if (native["kernel"] != KERNEL or native["architecture"] != ARCHITECTURE
+    if (set(native) != {"source", "kernel", "architecture", "modules", "compile_provenance"}
+            or native["kernel"] != KERNEL or native["architecture"] != ARCHITECTURE
             or set(native["modules"]) != MODULE_NAMES):
         raise ValueError("原生模块目标与包身份不一致")
     for name, facts in native["modules"].items():
         if (facts["compressed_sha256"] != expected[f"modules/{KERNEL}/{ARCHITECTURE}/{name}"]
                 or facts["architecture"] != ARCHITECTURE or not facts["vermagic"].startswith(KERNEL + " ")):
             raise ValueError("实际模块摘要或内核与原生记录不同")
+    provenance = native["compile_provenance"]
+    if (provenance["schema_version"] != 1 or provenance["kernel"] != KERNEL
+            or provenance["architecture"] != ARCHITECTURE or provenance["modules"] != native["modules"]
+            or digest(encoded(provenance["inputs"])) != provenance["inputs_sha256"]
+            or provenance["payload_sha256"] != {name: sha for name, sha in expected.items() if destination(name)}):
+        raise ValueError("源码编译来源与实际安装载荷不同")
+    firmware_inputs = {name: sha for name, sha in provenance["inputs"].items() if name.startswith("firmware/")}
+    if firmware_inputs != {name: sha for name, sha in expected.items() if name.startswith("firmware/")}:
+        raise ValueError("固件与冻结源码来源不同")
     installed = {destination(name): sha for name, sha in expected.items() if destination(name)}
     if not any(name.startswith("lib/firmware/aic8800D80/") for name in installed):
         raise ValueError("驱动包缺少固件")
@@ -139,7 +150,8 @@ def read_state(state):
             or not isinstance(value["payload_sha256"], str) or not SHA256.fullmatch(value["payload_sha256"])
             or type(value["files"]) is not dict or not value["files"]):
         raise ValueError("安装记录格式不完整，需先核定历史状态")
-    validate_build(value["build"])
+    # 旧内核的已安装状态仍参与构建号高水位、降级与漂移检查；候选包仅接受当前目标。
+    validate_build(value["build"], historical=True)
     for name, sha in value["files"].items():
         path = PurePosixPath(name)
         if (path.is_absolute() or ".." in path.parts or "\\" in name or str(path) != name

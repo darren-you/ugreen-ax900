@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从固定历史原件封装驱动分发包；不编译、安装或加载内核模块。"""
+"""从固定源码编译原件封装驱动分发包；不安装或加载内核模块。"""
 import argparse
 import gzip
 import hashlib
@@ -18,9 +18,68 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ID = "ugreen-ax900"
 PREFIX = "ugreen-ax900-prebuilt"
-KERNEL = "6.17.0-14-generic"
+KERNEL = "7.0.0-38-generic"
 ARCHITECTURE = "x86_64"
 VARIANT = "ubuntu24.04-kernel" + KERNEL
+NATIVE_PREFIX = "ugreen-ax900-native"
+MODULES_LOAD = b"aic_load_fw\naic8800_fdrv\n"
+BUILD_ENVIRONMENT = {"SOURCE_DATE_EPOCH": "0", "KBUILD_BUILD_TIMESTAMP": "Thu Jan 1 00:00:00 UTC 1970",
+                     "KBUILD_BUILD_USER": "ugreen-ax900", "KBUILD_BUILD_HOST": "builder",
+                     "KBUILD_BUILD_VERSION": "1", "LC_ALL": "C", "TZ": "UTC"}
+
+
+def repository_inputs(root):
+    """以实际字节冻结源码、匹配固件及纯编译配方，不依赖工作目录路径。"""
+    paths = []
+    for name in ("src/aic8800-1.0.9", "firmware/aic8800D80"):
+        directory = root / name
+        if directory.is_symlink() or not directory.is_dir():
+            raise ValueError("缺少普通源码或固件目录：" + name)
+        for path in directory.rglob("*"):
+            if path.is_symlink() or not (path.is_file() or path.is_dir()):
+                raise ValueError("源码或固件包含链接/特殊文件")
+            if path.is_file():
+                paths.append(path)
+    paths.extend(root / name for name in ("udev/aic.rules", "scripts/compile_native.py", "scripts/build_package.py"))
+    return {path.relative_to(root).as_posix(): hashlib.sha256(read_file(path)).hexdigest()
+            for path in sorted(paths)}
+
+
+def validate_provenance(value, files, root):
+    fields = {"schema_version", "kernel", "architecture", "inputs", "inputs_sha256", "toolchain",
+              "kernel_headers", "build_environment", "modules", "payload_sha256"}
+    if (type(value) is not dict or set(value) != fields or value["schema_version"] != 1
+            or value["kernel"] != KERNEL or value["architecture"] != ARCHITECTURE):
+        raise ValueError("缺少当前目标的源码编译来源记录")
+    inputs = repository_inputs(root)
+    if value["inputs"] != inputs or value["inputs_sha256"] != hashlib.sha256(encoded(inputs)).hexdigest():
+        raise ValueError("原生编译输入与当前仓库源码、固件或配方不同")
+    if value["build_environment"] != BUILD_ENVIRONMENT:
+        raise ValueError("原生编译环境与确定性配方不同")
+    tools = value["toolchain"]
+    if type(tools) is not dict or set(tools) != {"gcc", "make", "ld", "zstd", "python3"}:
+        raise ValueError("原生编译工具链记录不完整")
+    for fact in tools.values():
+        if (type(fact) is not dict or set(fact) != {"version", "sha256"}
+                or not isinstance(fact["version"], str) or not fact["version"].strip()
+                or not re.fullmatch(r"[0-9a-f]{64}", fact["sha256"])):
+            raise ValueError("原生编译工具版本或摘要非法")
+    headers = value["kernel_headers"]
+    if (type(headers) is not dict or set(headers) != {"packages", "files_sha256"}
+            or type(headers["packages"]) is not dict or not headers["packages"]
+            or any(not isinstance(v, str) or not v for v in headers["packages"].values())
+            or not re.fullmatch(r"[0-9a-f]{64}", headers["files_sha256"])):
+        raise ValueError("内核头文件版本或摘要记录不完整")
+    if value["payload_sha256"] != {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())}:
+        raise ValueError("原生编译产物与来源记录摘要不同")
+    if {name for name in files if name.startswith("firmware/")} != {name for name in inputs if name.startswith("firmware/")}:
+        raise ValueError("原生编译固件集合与当前仓库不同")
+    for name, sha in inputs.items():
+        if name.startswith("firmware/") or name == "udev/aic.rules":
+            if name not in files or hashlib.sha256(files[name]).hexdigest() != sha:
+                raise ValueError("原生编译原件没有使用仓库匹配固件或规则")
+    if files.get("modules-load/aic8800.conf") != MODULES_LOAD:
+        raise ValueError("模块自动加载配置不同")
 
 
 def encoded(value):
@@ -117,6 +176,7 @@ def source_payload(root):
     if hashlib.sha256(data).hexdigest() != source["sha256"]:
         raise ValueError("预编译原件 SHA256 不匹配冻结来源")
     files = {}
+    provenance = None
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
         names = set()
         for item in archive.getmembers():
@@ -129,6 +189,9 @@ def source_payload(root):
             if not item.isfile() or path.parts[0] != source["prefix"] or any(p.startswith("._") for p in path.parts):
                 continue
             relative = "/".join(path.parts[1:])
+            if relative == "native-build.json":
+                provenance = json.loads(archive.extractfile(item).read(), object_pairs_hook=unique_object)
+                continue
             if relative.startswith(("modules/", "firmware/")) or relative in ("udev/aic.rules", "modules-load/aic8800.conf"):
                 files[relative] = archive.extractfile(item).read()
     module_prefix = f"modules/{KERNEL}/{ARCHITECTURE}/"
@@ -146,7 +209,11 @@ def source_payload(root):
     for name in ("udev/aic.rules", "modules-load/aic8800.conf"):
         if name not in files:
             raise ValueError("预编译原件缺少安装配置")
-    return files, {"source": source, "kernel": KERNEL, "architecture": ARCHITECTURE, "modules": modules}
+    validate_provenance(provenance, files, root)
+    if provenance["modules"] != modules:
+        raise ValueError("真实 ELF 模块与编译来源记录不同")
+    return files, {"source": source, "kernel": KERNEL, "architecture": ARCHITECTURE,
+                   "modules": modules, "compile_provenance": provenance}
 
 
 def verify(path, value, files):

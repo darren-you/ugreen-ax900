@@ -4,7 +4,7 @@
   "config_path": "release.json",
   "platform": "module",
   "application_id": "ugreen-ax900",
-  "variant": "ubuntu24.04-kernel6.17.0-14-generic",
+  "variant": "ubuntu24.04-kernel7.0.0-38-generic",
   "architectures": ["x86_64"],
   "entry": "scripts/package_release.sh",
   "artifact": "ugreen-ax900.tar.gz",

@@ -41,6 +41,19 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "缺少命令 $1"
 }
 
+check_unfrozen_targets() {
+  local target attributes
+  for target in /usr/src/aic8800-1.0.9 /lib/firmware/aic8800D80; do
+    [ -e "$target" ] || continue
+    need_cmd lsattr
+    attributes="$(find -H "$target" \( -type f -o -type d \) -exec lsattr -d -- {} +)" ||
+      fail "无法检查 $target 的 immutable 属性，拒绝修改现有驱动"
+    if printf '%s\n' "$attributes" | awk '$1 ~ /^[a-zA-Z-]+$/ && index($1, "i") { frozen=1 } END { exit !frozen }'; then
+      fail "$target 含 immutable 冻结文件或目录；请管理员确认升级范围后手动解冻，再重试源码安装"
+    fi
+  done
+}
+
 check_environment() {
   [ "$(id -u)" -eq 0 ] || fail "请使用 sudo 执行"
   [ -d "$SOURCE_DIR" ] || fail "缺少源码目录 $SOURCE_DIR"
@@ -50,6 +63,8 @@ check_environment() {
   need_cmd make
   need_cmd gcc
   need_cmd depmod
+  # 此入口会卸载正在运行的模块，必须先检查现有源码与固件是否已冻结。
+  check_unfrozen_targets
 }
 
 install_firmware_and_rules() {

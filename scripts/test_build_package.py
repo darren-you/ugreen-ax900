@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""实际历史模块重打包与临时安装状态测试；不编译、加载或安装宿主驱动。"""
+"""合成 ELF 的封装/拒绝路径与安装状态测试；真实原生编译另在 Ubuntu 验收。"""
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
@@ -15,6 +16,7 @@ from unittest.mock import patch
 
 import build_package as package
 import verify_package as verification
+import compile_native
 
 CORE_SOURCE = os.environ.get("FAST_DEPLOY_TEST_PACKAGE_CORE_ROOT")
 EVIDENCE_FILE = os.environ.get("UGREEN_TEST_EVIDENCE_FILE")
@@ -31,6 +33,19 @@ def commit(root):
     return git(root, "rev-parse", "HEAD")
 
 
+def module_fixture(name, version):
+    """只测试 ELF 解析和身份约束，绝不能加载或作为发布用的原生模块。"""
+    strings = b"\0.shstrtab\0.modinfo\0"
+    modinfo = (f"name={name}\0version={version}\0srcversion=TESTFIXTURE\0"
+               f"vermagic={package.KERNEL} SMP preempt mod_unload modversions \0").encode()
+    header = struct.pack("<16sHHIQQQIHHHHHH", b"\x7fELF\x02\x01\x01" + b"\0" * 9,
+                         1, 62, 1, 0, 0, 64, 0, 64, 0, 0, 64, 3, 1)
+    sections = b"\0" * 64
+    sections += struct.pack("<IIQQQQIIQQ", 1, 3, 0, 0, 256, len(strings), 0, 0, 1, 0)
+    sections += struct.pack("<IIQQQQIIQQ", 11, 1, 0, 0, 256 + len(strings), len(modinfo), 0, 0, 1, 0)
+    return subprocess.check_output(["zstd", "-q", "-c"], input=header + sections + strings + modinfo)
+
+
 class PackageFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -39,15 +54,49 @@ class PackageFixture(unittest.TestCase):
         self.root.mkdir()
         shutil.copytree(package.ROOT / "scripts", self.root / "scripts",
                         ignore=shutil.ignore_patterns("__pycache__"))
-        for name in (".gitignore", "release.json", "prebuilt-source.json", "LICENSE", "NOTICE.md"):
+        for name in (".gitignore", "release.json", "LICENSE", "NOTICE.md"):
             shutil.copy2(package.ROOT / name, self.root / name)
-        self.source = json.loads((self.root / "prebuilt-source.json").read_text())
+        for name, data in {"src/aic8800-1.0.9/Makefile": b"synthetic fixture; never compiled\n",
+                           "firmware/aic8800D80/fmacfw_8800d80_u02.bin": b"fixture firmware\n",
+                           "udev/aic.rules": b"# fixture udev\n"}.items():
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
         (self.root / "release_assets").mkdir()
-        shutil.copy2(package.ROOT / "release_assets" / self.source["file"],
-                     self.root / "release_assets" / self.source["file"])
+        self.native_files = {f"modules/{package.KERNEL}/{package.ARCHITECTURE}/{name}.ko.zst": module_fixture(name, version)
+                             for name, version in (("aic_load_fw", "1.0"), ("aic8800_fdrv", "6.4.3.0"))}
+        self.native_files.update({name: (self.root / name).read_bytes() for name in
+                                  ("firmware/aic8800D80/fmacfw_8800d80_u02.bin", "udev/aic.rules")})
+        self.native_files["modules-load/aic8800.conf"] = package.MODULES_LOAD
+        inputs = package.repository_inputs(self.root)
+        provenance = {"schema_version": 1, "kernel": package.KERNEL, "architecture": package.ARCHITECTURE,
+                      "inputs": inputs, "inputs_sha256": hashlib.sha256(package.encoded(inputs)).hexdigest(),
+                      "toolchain": {name: {"version": "synthetic fixture", "sha256": "f" * 64}
+                                    for name in ("gcc", "make", "ld", "zstd", "python3")},
+                      "kernel_headers": {"packages": {"linux-headers-" + package.KERNEL: "fixture"},
+                                         "files_sha256": "e" * 64},
+                      "build_environment": package.BUILD_ENVIRONMENT,
+                      "modules": {Path(name).name: package.native_module(data)
+                                  for name, data in self.native_files.items() if name.endswith(".ko.zst")},
+                      "payload_sha256": {name: hashlib.sha256(data).hexdigest() for name, data in self.native_files.items()}}
+        self.native_files["native-build.json"] = package.encoded(provenance)
+        self.source = {"file": "native-fixture.tar.gz", "url": "https://example.invalid/native-fixture.tar.gz",
+                       "sha256": "", "prefix": package.NATIVE_PREFIX, "kernel": package.KERNEL,
+                       "architecture": package.ARCHITECTURE}
+        self.write_native_archive()
         environment = {key: value for key, value in os.environ.items() if not key.startswith("FAST_DEPLOY_")}
         self.environment = patch.dict(os.environ, environment, clear=True)
         self.environment.start()
+
+    def write_native_archive(self):
+        path = self.root / "release_assets" / self.source["file"]
+        with tarfile.open(path, "w:gz") as archive:
+            for name, data in sorted(self.native_files.items()):
+                item = tarfile.TarInfo(package.NATIVE_PREFIX + "/" + name)
+                item.size = len(data)
+                archive.addfile(item, io.BytesIO(data))
+        self.source["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        (self.root / "prebuilt-source.json").write_bytes(package.encoded(self.source))
 
     def tearDown(self):
         self.environment.stop()
@@ -98,7 +147,7 @@ class PackageTest(PackageFixture):
             package.build(self.root, linked / "run.tar.gz")
         self.assertFalse((self.root / "dist").exists())
 
-    def test_real_native_bytes_deterministic_local_package_and_install_rejection(self):
+    def test_native_fixture_deterministic_local_package_and_install_rejection(self):
         artifact, report = package.build(self.root)
         self.assertTrue(report["build"]["local_validation"])
         self.assertNotIn("build_number", report["build"])
@@ -135,11 +184,82 @@ class PackageTest(PackageFixture):
         compressed = next(value for name, value in payload.items() if name.endswith(".ko.zst"))
         elf = subprocess.check_output(["zstd", "-q", "-d", "-c"], input=compressed)
         for modified in (elf[:18] + b"\xb7\x00" + elf[20:],
-                         elf.replace(b"6.17.0-14-generic", b"6.17.0-15-generic")):
+                         elf.replace(b"7.0.0-38-generic", b"7.0.0-39-generic")):
             candidate = subprocess.check_output(["zstd", "-q", "-c"], input=modified)
             with self.assertRaises(ValueError):
                 package.native_module(candidate)
         self.assertFalse((self.root / "dist").exists())
+
+    def test_native_provenance_and_repository_firmware_must_match(self):
+        provenance = json.loads(self.native_files["native-build.json"])
+        for field, value in (("kernel", "6.17.0-14-generic"), ("inputs_sha256", "0" * 64),
+                             ("modules", {}), ("toolchain", {}), ("build_environment", {})):
+            self.native_files["native-build.json"] = package.encoded({**provenance, field: value})
+            self.write_native_archive()
+            with self.assertRaises(ValueError):
+                package.build(self.root)
+        self.native_files["native-build.json"] = package.encoded(provenance)
+        self.write_native_archive()
+        firmware = self.root / "firmware/aic8800D80/fmacfw_8800d80_u02.bin"
+        firmware.write_bytes(b"new firmware after native compilation")
+        with self.assertRaisesRegex(ValueError, "源码、固件或配方"):
+            package.build(self.root)
+        self.assertFalse((self.root / "dist").exists())
+
+    def test_compile_entry_rejects_root_before_running_any_compiler(self):
+        with patch.object(os, "geteuid", return_value=0), patch.object(subprocess, "run") as run:
+            with self.assertRaisesRegex(ValueError, "禁止 root"):
+                compile_native.compile_native(self.root, self.base / "native.tar.gz")
+            run.assert_not_called()
+        self.assertFalse((self.base / "native.tar.gz").exists())
+
+    def test_header_provenance_resolves_ubuntu_hwe_common_dependency(self):
+        generic = "linux-headers-" + package.KERNEL
+        common = "linux-hwe-7.0-headers-7.0.0-38"
+        header = self.base / "header.h"
+        header.write_bytes(b"actual header bytes")
+
+        def query(command):
+            if "-f=${Depends}" in command:
+                return common + ", libc6 (>= 2.34)"
+            self.assertIn(command[-1], (generic, common))
+            if "-f=${Status}\t${Version}" in command:
+                return "install ok installed\t7.0.0-38.38~24.04.1"
+            self.assertIn("-L", command)
+            return str(header)
+
+        with patch.object(compile_native, "output", side_effect=query):
+            fact = compile_native.header_fact()
+        self.assertEqual(set(fact["packages"]), {generic, common})
+        self.assertEqual(fact["files_sha256"], hashlib.sha256(package.encoded(
+            {str(header): hashlib.sha256(header.read_bytes()).hexdigest()})).hexdigest())
+
+    def test_installer_freeze_preflight_runs_before_mutation(self):
+        root = self.guard_fixture()
+        source_dir, firmware_dir = self.base / "existing-source", self.base / "existing-firmware"
+        source_dir.mkdir()
+        firmware_dir.mkdir()
+        script = root / "scripts/install_prebuilt.sh"
+        script.write_text(script.read_text().replace("/usr/src/aic8800-1.0.9", str(source_dir))
+                          .replace("/lib/firmware/aic8800D80", str(firmware_dir)))
+        self.refresh_sums(root)
+        shim, marker = self.base / "bin", self.base / "mutation-called"
+        shim.mkdir()
+        commands = {"id": "printf '0\\n'", "uname": f'if [ "$1" = -r ]; then echo {package.KERNEL}; else echo x86_64; fi',
+                    "lsattr": "printf '%s\\n' '----i---------e------- frozen-file'"}
+        commands.update({name: 'printf called > "$UGREEN_TEST_MARKER"; exit 91'
+                         for name in ("install", "cp", "rm", "modprobe", "depmod", "flock", "date")})
+        for name, body in commands.items():
+            command = shim / name
+            command.write_text("#!/bin/sh\n" + body + "\n")
+            command.chmod(0o755)
+        result = subprocess.run(["bash", str(script)], text=True, capture_output=True,
+                                env={**os.environ, "PATH": str(shim) + ":" + os.environ["PATH"],
+                                     "UGREEN_TEST_MARKER": str(marker)})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("immutable", result.stdout)
+        self.assertIn("手动解冻", result.stdout)
+        self.assertFalse(marker.exists())
 
     def test_invalid_version_and_incomplete_formal_input_fail(self):
         declaration = self.root / "release.json"
@@ -225,6 +345,20 @@ class PackageTest(PackageFixture):
         self.install_fixture(root, system)
         verification.finish_install(root, state, system, token)
         self.assertEqual(verification.read_state(state)["status"], "installed")
+
+    def test_historical_kernel_state_preserves_build_high_water(self):
+        root = self.guard_fixture(number=11)
+        state, system = self.base / "state/install.json", self.base / "system"
+        system.mkdir()
+        old = verification.verify(root)
+        old["build"] = {**old["build"], "variant": "ubuntu24.04-kernel6.17.0-14-generic", "build_number": 12}
+        old["files"] = {name.replace(package.KERNEL, "6.17.0-14-generic"): sha for name, sha in old["files"].items()}
+        verification.save_state(state, {**old, "status": "installed"})
+        self.assertEqual(verification.read_state(state)["build"]["build_number"], 12)
+        with self.assertRaisesRegex(ValueError, "较旧"):
+            verification.begin_install(root, state, system)
+        with self.assertRaisesRegex(ValueError, "目标不一致"):
+            verification.validate_build(old["build"])
 
 
 @unittest.skipUnless(os.environ.get("FAST_DEPLOY_TEST_PACKAGE_CORE_ROOT"), "独立 run 测试需要显式 Core 测试源码")
